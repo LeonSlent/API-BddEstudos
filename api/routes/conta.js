@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const Usuario = require('../models/Usuario');
 const Cronograma = require('../models/Cronograma');
 const Tentativa = require('../models/Tentativa');
+const Simulado = require('../models/Simulado');
 const Feedback = require('../models/Feedback');
 const { autenticar } = require('../middleware/auth');
 const { limiteConta } = require('../middleware/limites');
@@ -119,6 +120,7 @@ router.post('/excluir', limiteConta, rota(async (req, res) => {
     const [c, t, f] = await Promise.all([
       Cronograma.deleteMany({ usuarioId: id }),
       Tentativa.deleteMany({ usuarioId: id }),
+      Simulado.deleteMany({ usuarioId: id }),
       Feedback.deleteMany({ usuarioId: id }),
     ]);
     return { cronogramas: c.deletedCount, tentativas: t.deletedCount, feedbacks: f.deletedCount };

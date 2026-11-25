@@ -30,7 +30,7 @@ const eu = (token) => chamar('GET', '/conta', { token });
 const patch = (corpo, token) => chamar('PATCH', '/conta', { corpo, token });
 const excluir = (corpo, token) => chamar('POST', '/conta/excluir', { corpo, token });
 const login = (email, senha) => chamar('POST', '/auth/login', { corpo: { email, senha } });
-const cadastro = (email) => chamar('POST', '/auth/cadastro', { corpo: { nome: 'Conta Teste', email, senha: SENHA } });
+const cadastro = (email) => chamar('POST', '/auth/cadastro', { corpo: { trilha_id: 'trilha-dev', nome: 'Conta Teste', email, senha: SENHA } });
 
 function conferir(descricao, ok, detalhe = '') {
   if (!ok) falhas++;
@@ -52,9 +52,8 @@ async function limpar() {
   await Usuario.deleteMany({ _id: { $in: ids } });
 }
 
-// Cria um cronograma, uma tentativa e um feedback para o usuário
+// O cadastro já criou o cronograma. Acrescenta os outros dados da conta.
 async function criarDados(usuarioId, prefixo) {
-  await Cronograma.create({ _id: `${prefixo}-c`, usuarioId, trilhaId: 'trilha-dev', dataInicio: new Date('2026-11-12'), ativo: true });
   await Tentativa.create({ _id: `${prefixo}-t`, usuarioId, questaoId: 'q1', acertou: true });
   await Feedback.create({ _id: `${prefixo}-f`, usuarioId, tipo: 'erro', texto: 'Teste' });
 }

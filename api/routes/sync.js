@@ -2,7 +2,7 @@ const express = require('express');
 const { autenticar } = require('../middleware/auth');
 const Tentativa = require('../models/Tentativa');
 const Feedback = require('../models/Feedback');
-const { Rejeicao, Temporario, bool01, parseMomento } = require('../lib/sync-comum');
+const { Rejeicao, Temporario, parseMomento } = require('../lib/sync-comum');
 const Cronograma = require('../models/Cronograma');
 const Usuario = require('../models/Usuario');
 const tratadoresCronograma = require('../lib/sync-cronograma');
@@ -17,36 +17,8 @@ const OPERACOES = ['insert', 'update', 'delete'];
 // Entidades da fila que ainda não tratamos
 const PENDENTES = new Set(['usuario']);
 
-// ---------- tentativa_exercicio: só insert ----------
-async function inserirTentativa(usuarioId, entidadeId, p) {
-  const existente = await Tentativa.findById(entidadeId).select('usuarioId').lean();
-  if (existente) {
-    if (existente.usuarioId === usuarioId) return; // já recebida antes: tudo certo
-    throw new Rejeicao('Este id já está em uso.');
-  }
-
-  const acertou = bool01(p.acertou);
-  if (acertou === undefined) throw new Rejeicao('acertou precisa ser 0 ou 1.');
-
-  const respondidaEm = p.respondida_em ? new Date(p.respondida_em) : new Date();
-  const limite = Date.now() + 24 * 60 * 60 * 1000; // tolera diferença de relógio de 1 dia
-  if (Number.isNaN(respondidaEm.getTime()) || respondidaEm.getTime() > limite) {
-    throw new Rejeicao('respondida_em é inválida ou está no futuro.');
-  }
-
-  await Tentativa.create({
-    _id: entidadeId,
-    usuarioId, // vem do token, nunca do payload
-    questaoId: p.questao_id,
-    acertou,
-    dificuldadeInformada: p.dificuldade_informada ?? undefined,
-    respondidaEm,
-    repeticoes: p.repeticoes ?? undefined,
-    intervaloDias: p.intervalo_dias ?? undefined,
-    fatorFacilidade: p.fator_facilidade ?? undefined,
-    proximaRevisao: p.proxima_revisao ?? undefined,
-  });
-}
+const { salvarTentativa } = require('../lib/estudo');
+const { linhaCronograma, linhaTentativa } = require('../lib/linhas-estudo');
 
 // ---------- feedback: só insert ----------
 async function inserirFeedback(usuarioId, entidadeId, p) {
@@ -66,7 +38,7 @@ async function inserirFeedback(usuarioId, entidadeId, p) {
 
 // Quem faz o quê. Operação que não está aqui é recusada.
 const TRATADORES = {
-  tentativa_exercicio: { insert: inserirTentativa },
+  tentativa_exercicio: { insert: salvarTentativa },
   feedback: { insert: inserirFeedback },
   ...tratadoresCronograma, // cronograma, peso_materia, etapa_estudo
 };
@@ -98,6 +70,13 @@ async function processar(usuarioId, item) {
     if (!tratador) throw new Rejeicao('Operação não permitida para esta entidade.');
 
     const retorno = await tratador(usuarioId, entidadeId, payload);
+    if (entidade === 'tentativa_exercicio') {
+      const resultado = { id, status: 'ok', tentativa: linhaTentativa(retorno.tentativa) };
+      if (payload.incluir_cronograma === true) {
+        resultado.plano = retorno.plano ? { cronograma: linhaCronograma(retorno.plano.ciclo), resumo: retorno.plano.resumo } : null;
+      }
+      return resultado;
+    }
     // "ignorada": havia uma alteração mais recente no servidor. Para o app é o mesmo que ok.
     return retorno?.ignorada ? { id, status: 'ok', ignorada: true } : { id, status: 'ok' };
   } catch (erro) {
@@ -138,49 +117,7 @@ module.exports = router;
 // GET /sync?desde=2026-11-11T10:00:00Z&limite=500
 // Sem "desde": baixa tudo (aparelho novo). Com "desde": só o que mudou depois.
 
-const dia = (d) => (d ? d.toISOString().slice(0, 10) : null);
-const iso = (d) => (d ? d.toISOString() : null);
-
-const linhaCronograma = (c) => ({
-  id: c._id,
-  usuario_id: c.usuarioId,
-  trilha_id: c.trilhaId,
-  data_inicio: dia(c.dataInicio),
-  ativo: c.ativo ? 1 : 0,
-  atualizado_em: iso(c.atualizadoEm ?? c.updatedAt),
-  // O retrato completo: o que não estiver aqui não existe mais
-  pesos: (c.pesos ?? []).map((p) => ({
-    cronograma_id: c._id,
-    materia_id: p.materiaId,
-    peso: p.peso,
-    atualizado_em: iso(p.atualizadoEm ?? c.updatedAt),
-  })),
-  etapas: (c.etapas ?? []).map((e) => ({
-    id: e._id,
-    cronograma_id: c._id,
-    materia_id: e.materiaId,
-    data: dia(e.data),
-    duracao_min: e.duracaoMin,
-    pausa_min: e.pausaMin ?? 10,
-    concluida: e.concluida ? 1 : 0,
-    concluida_em: iso(e.concluidaEm),
-    atualizado_em: iso(e.atualizadoEm ?? c.updatedAt),
-  })),
-});
-
-const linhaTentativa = (t) => ({
-  id: t._id,
-  usuario_id: t.usuarioId,
-  questao_id: t.questaoId,
-  acertou: t.acertou ? 1 : 0,
-  dificuldade_informada: t.dificuldadeInformada ?? null,
-  respondida_em: iso(t.respondidaEm),
-  repeticoes: t.repeticoes,
-  intervalo_dias: t.intervaloDias,
-  fator_facilidade: t.fatorFacilidade,
-  proxima_revisao: dia(t.proximaRevisao),
-  atualizado_em: iso(t.updatedAt),
-});
+const iso = (d) => d?.toISOString() ?? null;
 
 router.get('/', async (req, res, next) => {
   try {

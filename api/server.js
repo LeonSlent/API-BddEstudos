@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const { criarCors } = require('./middleware/cors');
 const { conectar, mongoose } = require('./db');
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
   console.error('Defina JWT_SECRET no .env, com pelo menos 32 caracteres.');
@@ -7,6 +8,8 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 }
 
 const app = express();
+// Antes do JSON, da autenticação e das rotas: preflight e erros também recebem CORS.
+app.use(criarCors());
 app.use(express.json());
 
 app.get('/saude', (req, res) => {
@@ -20,6 +23,7 @@ app.get('/saude', (req, res) => {
 app.use('/catalogo', require('./routes/catalogo'));
 app.use('/auth', require('./routes/auth'));
 app.use('/sync', require('./routes/sync'));
+app.use('/estudo', require('./routes/estudo'));
 app.use('/conta', require('./routes/conta'));
 
 // Nenhuma rota anterior respondeu

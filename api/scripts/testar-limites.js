@@ -1,5 +1,5 @@
+const { apagarContasDeTeste } = require('./util-teste');
 const { conectar, mongoose } = require('../db');
-const Usuario = require('../models/Usuario');
 
 const BASE = process.env.BASE || 'http://localhost:3001';
 const EMAIL = 'limites.teste@email.com';
@@ -27,10 +27,10 @@ function esperar(descricao, r, statusEsperado) {
 
 async function main() {
   await conectar();
-  await Usuario.deleteMany({ email: EMAIL });
+  await apagarContasDeTeste([EMAIL]);
 
   console.log('\n--- Cadastro (limite de 2 neste servidor de teste) ---');
-  const cad = await chamar('POST', '/auth/cadastro', { corpo: { nome: 'Limites', email: EMAIL, senha: SENHA } });
+  const cad = await chamar('POST', '/auth/cadastro', { corpo: { trilha_id: 'trilha-dev', nome: 'Limites', email: EMAIL, senha: SENHA } });
   esperar('1º cadastro (válido)', cad, 201);
   esperar('2º cadastro (corpo vazio)', await chamar('POST', '/auth/cadastro', { corpo: {} }), 400);
   esperar('3º cadastro: bloqueado', await chamar('POST', '/auth/cadastro', { corpo: {} }), 429);
@@ -56,7 +56,7 @@ async function main() {
   esperar('consultar a conta', await chamar('GET', '/conta', { token }), 200);
   esperar('catálogo de trilhas', await chamar('GET', '/catalogo/trilhas'), 200);
 
-  await Usuario.deleteMany({ email: EMAIL });
+  await apagarContasDeTeste([EMAIL]);
   console.log(falhas === 0 ? '\nTudo certo.' : `\n${falhas} teste(s) com resultado inesperado.`);
   await mongoose.disconnect();
 }

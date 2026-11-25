@@ -40,7 +40,7 @@ async function inserirCronograma(usuarioId, id, p) {
   if (ativo === undefined) throw new Rejeicao('ativo precisa ser 0 ou 1.');
 
   await salvar(new Cronograma({
-    _id: id, usuarioId, trilhaId: p.trilha_id, dataInicio, ativo, atualizadoEm: momento,
+    _id: id, usuarioId, trilhaId: p.trilha_id, dataInicio, ativo, atualizadoEm: momento, distribuicaoDiaria: false,
   }));
 }
 
@@ -91,8 +91,9 @@ async function gravarPeso(usuarioId, entidadeId, p) {
 
 // ======================= ETAPA DE ESTUDO =======================
 
-const CAMPOS_ETAPA_NOVA = ['cronograma_id', 'materia_id', 'data', 'duracao_min', 'pausa_min', 'concluida', 'concluida_em'];
-const CAMPOS_ETAPA_EDITAVEIS = ['data', 'duracao_min', 'pausa_min', 'concluida', 'concluida_em'];
+// Clientes anteriores ainda enviam tema_id. O bloco representa a matéria inteira.
+const CAMPOS_ETAPA_EDITAVEIS = ['data', 'duracao_min', 'pausa_min', 'concluida', 'concluida_em', 'tema_id'];
+const CAMPOS_ETAPA_NOVA = ['cronograma_id', 'materia_id', ...CAMPOS_ETAPA_EDITAVEIS];
 
 const exigirNumero = (valor, nome) => {
   if (typeof valor !== 'number') throw new Rejeicao(`${nome} precisa ser um número.`);

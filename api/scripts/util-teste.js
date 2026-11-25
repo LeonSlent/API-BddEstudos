@@ -7,4 +7,12 @@ async function deveFalhar(descricao, acao) {
   }
 }
 
-module.exports = { deveFalhar };
+async function apagarContasDeTeste(emails) {
+  const Usuario = require('../models/Usuario');
+  const Cronograma = require('../models/Cronograma');
+  const ids = await Usuario.distinct('_id', { email: { $in: emails } });
+  await Cronograma.deleteMany({ usuarioId: { $in: ids } });
+  await Usuario.deleteMany({ _id: { $in: ids } });
+}
+
+module.exports = { deveFalhar, apagarContasDeTeste };

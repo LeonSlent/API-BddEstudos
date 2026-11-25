@@ -4,8 +4,12 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "test": "node --test tests/*.test.js",
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "check:env": "node scripts/verificar-configuracao.js",
+    "check:db": "node scripts/verificar-configuracao.js --banco",
+    "test:cors": "node --test tests/cors.test.js"
   },
   "keywords": [],
   "author": "",

@@ -53,10 +53,13 @@ async function main() {
   await conectar();
   await apagarRestos();
 
-  const cad = await chamar('POST', '/auth/cadastro', { corpo: { nome: 'Sync Cron', email: EMAIL, senha: 'senha-forte-123' } });
+  const cad = await chamar('POST', '/auth/cadastro', { corpo: { trilha_id: 'trilha-dev', nome: 'Sync Cron', email: EMAIL, senha: 'senha-forte-123' } });
   token = cad.json?.token;
   const donoId = cad.json?.usuario?.id;
   if (!token) throw new Error('O cadastro de teste falhou. O servidor está rodando?');
+
+  const inicial = await Cronograma.findOne({ usuarioId: donoId, ativo: true });
+  await esperar('desativar o ciclo inicial antes de importar outro', op('cronograma', inicial._id, 'update', { ativo: 0, atualizado_em: new Date().toISOString() }), 'ok');
 
   // Foto dos dados da Ana, para provar no fim que ninguém mexeu neles
   const anaAntes = await cron('cron-1');

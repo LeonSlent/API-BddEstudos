@@ -49,7 +49,7 @@ const trilhas = [
     materias: [{ _id: 'mat-bd-dados', nome: 'Banco de Dados', temas: [] }],
   },
   { _id: 'trilha-seg', nome: 'Segurança', materias: [] },
-  { _id: 'trilha-gov', nome: 'Governança', materias: [] },
+  require('./catalogo-governanca').trilha,
 ];
 
 async function main() {

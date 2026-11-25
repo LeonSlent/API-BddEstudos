@@ -3,6 +3,7 @@ const Trilha = require('../models/Trilha');
 const Questao = require('../models/Questao');
 
 const questoes = [
+  ...require('./catalogo-governanca').questoes,
   {
     _id: 'q1',
     temaId: 'tema-sql',
@@ -29,19 +30,14 @@ const questoes = [
 // cada temaId precisa existir, e dentro da matéria indicada.
 async function conferirRelacoes(lista) {
   const trilhas = await Trilha.find();
-  const materiaDoTema = new Map();
+  const temasPorMateria = new Map();
   for (const trilha of trilhas) {
     for (const materia of trilha.materias) {
-      for (const tema of materia.temas) {
-        materiaDoTema.set(tema._id, materia._id);
-      }
+      temasPorMateria.set(materia._id, new Set(materia.temas.map(tema => tema._id)));
     }
   }
   for (const q of lista) {
-    if (!materiaDoTema.has(q.temaId)) {
-      throw new Error(`Questão ${q._id}: o tema "${q.temaId}" não existe.`);
-    }
-    if (materiaDoTema.get(q.temaId) !== q.materiaId) {
+    if (!temasPorMateria.get(q.materiaId)?.has(q.temaId)) {
       throw new Error(`Questão ${q._id}: o tema "${q.temaId}" não pertence à matéria "${q.materiaId}".`);
     }
   }

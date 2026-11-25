@@ -1,6 +1,6 @@
+const { apagarContasDeTeste } = require('./util-teste');
 const jwt = require('jsonwebtoken');
 const { conectar, mongoose } = require('../db');
-const Usuario = require('../models/Usuario');
 
 const BASE = 'http://localhost:3000';
 const EMAIL = 'carlos.teste@email.com';
@@ -28,28 +28,28 @@ function conferir(descricao, r, esperado, verificar) {
 
 async function main() {
   await conectar();
-  await Usuario.deleteMany({ email: { $in: [EMAIL, 'apagado.teste@email.com'] } });
+  await apagarContasDeTeste([EMAIL, 'apagado.teste@email.com']);
 
   console.log('\n--- Cadastro ---');
-  const cad = await chamar('POST', '/auth/cadastro', { corpo: { nome: 'Carlos Teste', email: EMAIL, senha: SENHA } });
+  const cad = await chamar('POST', '/auth/cadastro', { corpo: { trilha_id: 'trilha-dev', nome: 'Carlos Teste', email: EMAIL, senha: SENHA } });
   conferir('cadastro válido', cad, 201, (j) =>
     typeof j.token === 'string' && j.usuario.email === EMAIL && !('senhaHash' in j.usuario));
   const tokenCarlos = cad.json?.token;
 
   conferir('e-mail repetido (só maiúsculas)', await chamar('POST', '/auth/cadastro',
-    { corpo: { nome: 'Outro', email: EMAIL.toUpperCase(), senha: SENHA } }), 409);
+    { corpo: { trilha_id: 'trilha-dev', nome: 'Outro', email: EMAIL.toUpperCase(), senha: SENHA } }), 409);
   conferir('senha curta (7 caracteres)', await chamar('POST', '/auth/cadastro',
-    { corpo: { nome: 'X', email: 'x1@email.com', senha: '1234567' } }), 400);
+    { corpo: { trilha_id: 'trilha-dev', nome: 'X', email: 'x1@email.com', senha: '1234567' } }), 400);
   conferir('senha longa demais (73 caracteres)', await chamar('POST', '/auth/cadastro',
-    { corpo: { nome: 'X', email: 'x2@email.com', senha: 'a'.repeat(73) } }), 400);
+    { corpo: { trilha_id: 'trilha-dev', nome: 'X', email: 'x2@email.com', senha: 'a'.repeat(73) } }), 400);
   conferir('e-mail em formato inválido', await chamar('POST', '/auth/cadastro',
-    { corpo: { nome: 'X', email: 'sem-arroba', senha: SENHA } }), 400);
+    { corpo: { trilha_id: 'trilha-dev', nome: 'X', email: 'sem-arroba', senha: SENHA } }), 400);
   conferir('nome vazio', await chamar('POST', '/auth/cadastro',
-    { corpo: { nome: '   ', email: 'x3@email.com', senha: SENHA } }), 400);
+    { corpo: { trilha_id: 'trilha-dev', nome: '   ', email: 'x3@email.com', senha: SENHA } }), 400);
   conferir('senha enviada como número', await chamar('POST', '/auth/cadastro',
-    { corpo: { nome: 'X', email: 'x4@email.com', senha: 12345678 } }), 400);
+    { corpo: { trilha_id: 'trilha-dev', nome: 'X', email: 'x4@email.com', senha: 12345678 } }), 400);
   conferir('e-mail enviado como objeto (tentativa de injeção)', await chamar('POST', '/auth/cadastro',
-    { corpo: { nome: 'X', email: { $ne: null }, senha: SENHA } }), 400);
+    { corpo: { trilha_id: 'trilha-dev', nome: 'X', email: { $ne: null }, senha: SENHA } }), 400);
   conferir('sem corpo nenhum', await chamar('POST', '/auth/cadastro'), 400);
   conferir('JSON malformado', await chamar('POST', '/auth/cadastro', { bruto: '{nome:' }), 400);
 
@@ -82,12 +82,12 @@ async function main() {
     (j) => j.usuario.email === EMAIL);
 
   const apagado = await chamar('POST', '/auth/cadastro',
-    { corpo: { nome: 'Vai Sumir', email: 'apagado.teste@email.com', senha: SENHA } });
-  await Usuario.deleteOne({ email: 'apagado.teste@email.com' });
+    { corpo: { trilha_id: 'trilha-dev', nome: 'Vai Sumir', email: 'apagado.teste@email.com', senha: SENHA } });
+  await apagarContasDeTeste(['apagado.teste@email.com']);
   conferir('token válido, mas a conta foi excluída', await chamar('GET', '/auth/eu',
     { token: apagado.json?.token }), 401);
 
-  await Usuario.deleteOne({ email: EMAIL });
+  await apagarContasDeTeste([EMAIL]);
   console.log(falhas === 0 ? '\nTudo certo.' : `\n${falhas} teste(s) com resultado inesperado.`);
   await mongoose.disconnect();
 }

@@ -50,7 +50,7 @@ async function main() {
   const tokenAna = login.json?.token;
   if (!tokenAna) throw new Error('Não consegui fazer login com a Ana. Rode seed-usuarios.js.');
 
-  const cad = await chamar('POST', '/auth/cadastro', { corpo: { nome: 'Baixar Teste', email: EMAIL, senha: 'senha-forte-123' } });
+  const cad = await chamar('POST', '/auth/cadastro', { corpo: { trilha_id: 'trilha-dev', nome: 'Baixar Teste', email: EMAIL, senha: 'senha-forte-123' } });
   const token = cad.json?.token;
   const donoId = cad.json?.usuario?.id;
   if (!token) throw new Error('O cadastro de teste falhou. O servidor está rodando?');
@@ -99,12 +99,12 @@ async function main() {
 
   console.log('\n--- Isolamento entre usuários ---');
   const vazio = await baixar(token);
-  conferir('usuário novo baixa tudo vazio',
-    vazio.json?.cronogramas.length === 0 && vazio.json.tentativas.length === 0 && vazio.json.usuario.email === EMAIL);
+  conferir('usuário novo baixa seu ciclo inicial e nenhuma tentativa',
+    vazio.json?.cronogramas.length === 1 && vazio.json.cronogramas[0].trilha_id === 'trilha-dev' && vazio.json.tentativas.length === 0 && vazio.json.usuario.email === EMAIL);
 
   console.log('\n--- O cronograma vem como retrato completo ---');
   await enviar([
-    op('cronograma', 'baixar-c1', 'insert', { trilha_id: 'trilha-dev', data_inicio: '2026-11-12', ativo: 1, atualizado_em: t(-300) }),
+    op('cronograma', 'baixar-c1', 'insert', { trilha_id: 'trilha-dev', data_inicio: '2026-11-12', ativo: 0, atualizado_em: t(-300) }),
     op('peso_materia', 'baixar-c1:mat-logica', 'insert', { peso: 2, atualizado_em: t(-290) }),
     op('etapa_estudo', 'baixar-e1', 'insert', { cronograma_id: 'baixar-c1', materia_id: 'mat-logica', data: '2026-11-12', duracao_min: 60, atualizado_em: t(-280) }),
     op('etapa_estudo', 'baixar-e2', 'insert', { cronograma_id: 'baixar-c1', materia_id: 'mat-logica', data: '2026-11-13', duracao_min: 45, atualizado_em: t(-270) }),

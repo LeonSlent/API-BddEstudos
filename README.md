@@ -35,7 +35,7 @@ Ele nasceu do levantamento de requisitos de um aplicativo de celular que ajuda a
  │  SQLite (14 tabelas)     │ ───────────────────► │  API Node + Express       │
  │  • funciona offline      │   POST /sync (envia) │  • valida tudo            │
  │  • fila de sincronização │ ◄─────────────────── │  • autentica              │
- │  • lógica do estudo      │   GET /sync (baixa)  │         │                 │
+ │  • exibição do plano      │   GET /sync (baixa)  │         │                 │
  └──────────────────────────┘                      │         ▼                 │
                                                    │  MongoDB Atlas (7 coleções)│
                                                    └───────────────────────────┘
@@ -46,15 +46,15 @@ Ele nasceu do levantamento de requisitos de um aplicativo de celular que ajuda a
 - O **celular** guarda tudo o que o estudo precisa em um banco **SQLite** local: trilhas, matérias, questões, cronograma, respostas.
 - O **servidor** (API + MongoDB Atlas) é a cópia central. Ele guarda os dados do usuário para que ele possa trocar de aparelho, e distribui o catálogo (questões, concursos).
 - Tudo que o usuário faz offline entra numa **fila de sincronização** no celular. Quando a internet volta, o app **envia** a fila e **baixa** as novidades.
-- A **lógica do estudo** (gerar o ciclo, calcular pesos, calcular a próxima revisão) roda **no celular**, e não na API. Se estivesse só na API, o app pararia de funcionar sem conexão.
+- A API corrige a alternativa recebida, calcula a revisão por questão e gera os ciclos. O app exibe os resultados após sincronizar.
 
 ### Divisão de responsabilidades (cliente × API)
 
 | Tarefa | Onde fica |
 |---|---|
-| Gerar o cronograma em ciclo (RF06) | Cliente (app) |
-| Calcular a próxima revisão de uma questão (RF07) | Cliente (app) |
-| Corrigir a questão comparando com o gabarito | Cliente (app) |
+| Gerar o cronograma em ciclo (RF06) | API |
+| Calcular a próxima revisão de uma questão (RF07) | API |
+| Corrigir a alternativa escolhida | API ao salvar, app ao revelar o gabarito |
 | Agendar as notificações (RF10) | Cliente (app) |
 | Guardar e validar os dados | API |
 | Criar conta, login, trocar senha, excluir conta | API |
@@ -215,6 +215,22 @@ npm start
 Deve aparecer `API rodando em http://localhost:3000`. Teste em **http://localhost:3000/saude**.
 
 > **Atenção com o `npm run dev`** (reinício automático): o `node --watch` observa também a pasta `node_modules` e, no Windows, pode reiniciar o servidor no meio da primeira requisição com corpo JSON, o que faz os testes falharem com `fetch failed`. Se usar o `dev`, restrinja o que ele observa com `--watch-path` para as suas pastas de código (`routes`, `models`, `middleware`, `lib`) e os arquivos `server.js` e `db.js`. Na dúvida, use `npm start` e reinicie à mão (`Ctrl+C` e `npm start`) depois de editar.
+
+### Acesso direto pelo front-end (CORS)
+
+A API permite requisições do Expo Web diretamente na porta 3000. Não é necessário iniciar o proxy do front-end. O middleware CORS roda antes do JSON e da autenticação, responde ao preflight `OPTIONS` e permite `GET`, `POST` e `PATCH`, com os cabeçalhos `Content-Type` e `Authorization`.
+
+Configure as origens permitidas no `api/.env`:
+
+```dotenv
+CORS_ORIGINS=http://localhost:8081,http://127.0.0.1:8081,http://localhost:19006,http://127.0.0.1:19006
+```
+
+Essa é também a lista padrão quando a variável não existe. Uma lista configurada substitui os padrões; uma lista vazia não permite origens de navegador. Inclua a porta efetivamente usada pelo Expo (por exemplo `http://localhost:8082`) ou o IP da rede, quando necessário. Em produção, use a origem HTTPS do seu site. Reinicie a API após alterar o `.env`.
+
+No `.env` do front-end, use `EXPO_PUBLIC_API_URL=http://localhost:3000` e reinicie o Expo. Aplicativos nativos e clientes de terminal sem `Origin` continuam funcionando. A autenticação JWT permanece obrigatória nas rotas protegidas.
+
+Para verificar as regras CORS sem acessar o banco nem abrir portas: `npm run test:cors`, dentro de `api`.
 
 ### 3.7 Regra de ouro dos terminais
 
@@ -385,7 +401,7 @@ O token vale 30 dias (pensado para uso offline) e é invalidado se o usuário tr
 
 | Rota | Corpo | Resposta |
 |---|---|---|
-| `POST /auth/cadastro` | `{ "nome", "email", "senha" }` | `201` com `{ token, usuario }`. A senha tem de 8 a 72 caracteres. E-mail repetido dá `409` (comparado sem diferenciar maiúsculas) |
+| `POST /auth/cadastro` | `nome`, `email`, `senha`, `trilha_id` e `deslocamento_utc_min` opcional | `201` com `{ token, usuario }`. A conta e o primeiro ciclo são criados juntos. A trilha precisa ter matérias. Cada matéria começa com peso 1, inclusive ao iniciar outra trilha. E-mail repetido dá `409`. |
 | `POST /auth/login` | `{ "email", "senha" }` | `200` com `{ token, usuario }`. Erro dá sempre a mesma mensagem (`401`), seja e-mail inexistente, senha errada ou conta do Google |
 | `GET /auth/eu` | — (token) | O perfil de quem está logado |
 
@@ -401,6 +417,33 @@ O `id` do usuário é gerado **pelo servidor** no cadastro (criar conta exige in
 
 - Contas do Google só podem trocar o **nome**.
 - A exclusão é `POST` (e não `DELETE`) porque alguns clientes HTTP descartam o corpo do `DELETE`.
+
+### Planejamento de estudos (exige login)
+
+| Rota | Entrada e resultado |
+|---|---|
+| `POST /estudo/ciclos` | Recebe `id`, `trilha_id` e `deslocamento_utc_min`. Retorna `{ cronograma }` com pesos e blocos para sete dias. O mesmo ID recupera o ciclo em caso de reenvio. |
+| `POST /estudo/ciclos/atual` | Sincroniza a semana atual e incorpora as respostas de prática e revisão já gravadas. Recebe `deslocamento_utc_min`. Com `incluir_cronograma: true`, também devolve o cronograma e o resumo das mudanças. |
+| `POST /estudo/simulados` | Recebe `cronograma_id` e `deslocamento_utc_min`. Inicia ou retoma o simulado do ciclo ativo e retorna `id`, `total` e as questões `pendentes`. |
+| `POST /estudo/simulados/:id/concluir` | Devolve o cronograma atual e o `resumo` gravado na conclusão. Ele inclui o peso anterior e o novo de cada matéria e a troca de matéria por data e posição do bloco. Reenviar a confirmação mantém o resumo original. Simulados concluídos antes desse registro devolvem `resumo: null`. |
+| `GET /estudo/agenda` | Retorna `{ revisoes: [{ questao_id, vencimento }] }` com a data vigente de cada questão do usuário, em ordem de vencimento. |
+| `POST /estudo/previa` | Recebe `id`, `questao_id`, `alternativa`, `respondida_em` e `deslocamento_utc_min`. Retorna as datas estimadas para `hard`, `medium` e `easy`. A gravação por `POST /sync` devolve a tentativa definitiva no resultado da operação. |
+
+O deslocamento é em minutos a leste de UTC (São Paulo usa -180). Clientes antigos usam -180 por padrão. As datas já agendadas continuam válidas. O servidor usa SM-2 com intervalos iniciais de 1 e 6 dias, teto de 365 dias e revisão no dia seguinte após erro.
+
+Cada ciclo tem 28 blocos de uma hora, quatro por dia durante sete dias. A API atribui cada bloco à matéria com a maior prioridade `peso / (2 × blocos já atribuídos + 1)`, até o limite de 14 por matéria na semana. As cotas são distribuídas pelos dias, com no máximo dois blocos por matéria ao dia e alternância entre matérias. Em uma trilha de matéria única, ela ocupa todos os quatro blocos diários. O desempate entre pesos iguais alterna a cada ciclo semanal. Há um intervalo de 15 minutos após as duas primeiras horas de estudo, e as revisões orientam a ordem entre matérias empatadas.
+
+O ciclo tem sete dias civis a partir da data inicial. Cada matéria começa a primeira semana com peso 1. Os campos `peso_inicial` e `peso` guardam a base do ciclo e a prioridade vigente. Cada tentativa tem uma revisão individual e pode incluir `simulado_id`. Na última resposta, o app envia `concluir_simulado: true` para persistir a resposta e o novo plano na mesma transação.
+
+O cronograma consulta `GET /estudo/agenda?simulado=1&deslocamento_utc_min=-180`. A primeira revisão das questões inéditas de uma matéria parte do dia local de conclusão do primeiro bloco dessa matéria. Isso também vale para blocos antigos registrados com um tema específico. O intervalo inicial é `round(3 / peso)`, limitado a 1–7 dias. Para questões respondidas vale a próxima data individual da repetição espaçada. Com `agendado: true`, o início do simulado seleciona as questões devidas até hoje e fixa a seleção para a retomada. Blocos concluídos em ciclos anteriores da mesma trilha também contam.
+
+A API recalcula os pesos a partir da base do ciclo, das respostas de todos os simulados concluídos e da última resposta de prática ou revisão por questão na semana. O app sincroniza o plano após cada resposta comum. Abrir ou atualizar os dados também incorpora as respostas já salvas. Para difícil, médio e fácil, o sinal vale +0,80, +0,54 e +0,32 em um erro, ou +0,14, 0 e −0,10 em um acerto. Com `n` respostas na matéria, o alvo é `1 + 2 × média dos sinais` e o novo peso é `base + n/(n+4) × (alvo − base)`. A renovação usa a mesma base e o mesmo histórico para evitar dupla contagem.
+
+A meta semanal reserva um bloco por matéria quando há capacidade. O replanejamento desconta os minutos concluídos e os blocos futuros já fixados. Dias passados, blocos editados e o dia atual com estudo já concluído ficam preservados. O tempo pendente de dias passados não dá crédito de estudo. Se acabaram as vagas, o simulado ainda atualiza os pesos.
+
+A renovação ocorre quando o aplicativo sincroniza ou atravessa a virada da semana. Se houve várias semanas de ausência, as semanas com respostas são processadas em ordem até a atual. Apenas o plano a ser usado agora é gerado. A substituição do ciclo ativo e a gravação dos novos pesos e blocos ocorrem na mesma transação. Os cronogramas já gerados conservam os valores usados naquele momento. Iniciar outra trilha ou reiniciar explicitamente o ciclo começa uma nova sequência com pesos iguais.
+
+As gravações de estudo usam transações MongoDB para serializar alterações por conta. Use Atlas ou um replica set no desenvolvimento local. Na pasta `api`, `npm test` executa a suíte. Para incluir as rotas HTTP e a persistência, configure `TEST_REPLICA_URI` com um replica set de teste. O teste cria e remove uma base exclusiva.
 
 ### 6.5 Sincronização (exige login)
 
@@ -440,13 +483,10 @@ Corpo (de 1 a 100 operações, na ordem em que o usuário agiu):
       "operacao": "insert",
       "payload": {
         "questao_id": "q1",
-        "acertou": 1,
+        "alternativa": "B",
         "dificuldade_informada": 3,
         "respondida_em": "2026-11-11T10:00:00Z",
-        "repeticoes": 1,
-        "intervalo_dias": 3,
-        "fator_facilidade": 2.5,
-        "proxima_revisao": "2026-11-14"
+        "deslocamento_utc_min": -180
       }
     }
   ]
@@ -471,7 +511,7 @@ O app deve reenviar a fila **em ordem** e parar no primeiro `falha`, em vez de s
 
 | Entidade | `insert` | `update` | `delete` | Campos do `payload` |
 |---|:---:|:---:|:---:|---|
-| `tentativa_exercicio` | ✅ | ❌ | ❌ | `questao_id`, `acertou` (0/1), `dificuldade_informada`, `respondida_em`, `repeticoes`, `intervalo_dias`, `fator_facilidade`, `proxima_revisao` |
+| `tentativa_exercicio` | ✅ | ❌ | ❌ | `questao_id`, `alternativa` (A–E), `dificuldade_informada`, `respondida_em`, `deslocamento_utc_min`. Para filas antigas também é aceito `acertou`. A API salva a resposta de prática ou revisão, calcula a próxima revisão e replaneja o restante do ciclo em uma transação. Com `incluir_cronograma: true`, o resultado inclui `plano`, com o cronograma e o resumo da resposta, ou `null` se não houver plano. Reenviar o mesmo ID recupera o resultado sem contar a resposta novamente. |
 | `feedback` | ✅ | ❌ | ❌ | `tipo` (`erro`/`sugestao`), `texto`, `versao_app` |
 | `cronograma` | ✅ | ✅ (só `ativo`) | ❌ | `trilha_id`, `data_inicio` (`AAAA-MM-DD`), `ativo` (0/1), `atualizado_em` |
 | `peso_materia` | ✅ | ✅ | ❌ | `peso` (número > 0, máximo 1000), `atualizado_em`. O `entidade_id` é `"cronograma_id:materia_id"` |
@@ -634,8 +674,8 @@ Como este repositório é só banco e API, cada requisito tem duas partes: o que
 | RF03 | Consultar dados da conta | ✅ `GET /conta` |
 | RF04 | Excluir a conta | ✅ `POST /conta/excluir` (apaga todos os dados do usuário no servidor). O app precisa também limpar o SQLite e o token |
 | RF05 | Escolher a trilha | ✅ Dados e catálogo prontos (`GET /catalogo/trilhas`). Tela no app |
-| RF06 | Plano de estudos em ciclo com pesos | 🟡 Estrutura pronta (`cronograma`, `peso_materia`, `etapa_estudo`). **O algoritmo que gera o ciclo fica no app** |
-| RF07 | Exercícios com repetição espaçada | 🟡 Estrutura e catálogo prontos (`questao`, `tentativa_exercicio`). **O cálculo da próxima revisão fica no app** |
+| RF06 | Plano de estudos em ciclo com pesos | ✅ A API gera e persiste o ciclo em `POST /estudo/ciclos` |
+| RF07 | Exercícios com repetição espaçada | ✅ A API calcula e persiste a próxima revisão por questão |
 | RF08 | Novo cronograma de outra trilha | ✅ Regra de um ativo por usuário; trocar de trilha cria outro |
 | RF09 | Avaliar a dificuldade do exercício | ✅ Campo `dificuldade_informada` (1–5, opcional) |
 | RF10 | Notificações | 🟡 Tabela `notificacao` pronta (local). **Agendamento no app** |
@@ -652,7 +692,7 @@ Como este repositório é só banco e API, cada requisito tem duas partes: o que
 | Código | Descrição resumida | Situação |
 |---|---|---|
 | RNF01 | App em React Native | ➖ Fora do escopo deste repositório (é o projeto do app) |
-| RNF02 | Máximo de 2 horas consecutivas e pausas | 🟡 O banco e a API garantem **120 minutos por etapa** e guardam a pausa. A regra de "não encadear etapas da mesma matéria" fica no gerador de cronograma do app |
+| RNF02 | Máximo de 2 horas consecutivas e pausas | ✅ O gerador programa quatro horas de estudo por dia, com uma pausa de 15 minutos entre o segundo e o terceiro bloco. O modelo valida o limite de 120 minutos por etapa. |
 | RNF03 | Só provas de domínio público de bancas oficiais | 🟡 Campos `banca`, `ano` e `fonte_url`. **O conteúdo real precisa ser curado** (as questões atuais são de exemplo) |
 | RNF04 | Funcionar offline com sincronização | ✅ Servidor pronto (`/sync` nos dois sentidos). **Falta o lado do app** |
 | RNF05 | — | O texto do requisito aparece cortado no documento original; confira e complete |
@@ -694,7 +734,6 @@ Legenda: ✅ pronto neste repositório · 🟡 estrutura pronta aqui; a lógica 
 - Verificação de e-mail no cadastro (hoje qualquer um pode cadastrar o e-mail de outra pessoa)
 - Aceitar a entidade `usuario` no `/sync` (ou manter `PATCH /conta` como único caminho)
 - Questões e concursos **reais** (RNF03), com uma rota ou ferramenta para cadastrá-los
-- Verificar se `acertou` bate com o gabarito no servidor (exigiria o cliente enviar a alternativa escolhida)
 - Trava de segurança nos scripts de seed e de teste: recusar a execução quando `NODE_ENV` for `production`
 - Colocar os contadores do limite de tentativas em armazenamento compartilhado, se houver mais de um servidor
 - Antes de publicar: HTTPS, banco de produção separado, `trust proxy`, variáveis de ambiente na hospedagem
@@ -706,8 +745,7 @@ Esta API só funciona direito se o cliente fizer a sua parte:
 - Abrir o SQLite, executar o `schema_final.sql` na primeira abertura e **ligar `PRAGMA foreign_keys = ON` a cada conexão**
 - Guardar o token em armazenamento seguro (nunca no SQLite comum) e enviá-lo em `Authorization: Bearer <token>`
 - Baixar o catálogo da trilha escolhida **antes** de o usuário ficar offline
-- Gerar o cronograma em ciclo (RF06, RNF02): intercalar matérias, respeitar os pesos, no máximo 120 minutos por etapa, sem encadear a mesma matéria, com pausas
-- Calcular a repetição espaçada (RF07): dado o acerto e a dificuldade informada, definir `repeticoes`, `intervalo_dias`, `fator_facilidade` e `proxima_revisao`
+- Solicitar o ciclo por `POST /estudo/ciclos`, enviar a alternativa e a dificuldade por `POST /sync` e exibir a agenda de `GET /estudo/agenda`.
 - Corrigir questões comparando com o gabarito, mesmo offline
 - Agendar notificações (RF10) e montar o dashboard (RF14) com as consultas da seção 4.5
 - Rodar a sincronização como descrito na seção 7: enviar a fila, baixar, aplicar em transação e guardar o `proximo_desde`. Para guardar o `proximo_desde`, o cliente precisa de uma tabela de configuração no SQLite, que o `schema_final.sql` ainda não tem

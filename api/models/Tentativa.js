@@ -10,6 +10,8 @@ const TentativaSchema = new Schema(
     _id: { type: String, required: true },
     usuarioId: { type: String, required: true },
     questaoId: { type: String, required: true },
+    simuladoId: String,
+    materiaSimuladoId: String,
     acertou: { type: Boolean, required: true },
     dificuldadeInformada: {
       type: Number,
@@ -18,6 +20,9 @@ const TentativaSchema = new Schema(
       validate: inteiro,
     }, // RF09: opcional, o usuário pode pular
     respondidaEm: { type: Date, default: Date.now },
+    diaEstudo: Date, // dia civil usado no cálculo do servidor
+    cronogramaRecalculadoId: String,
+    resumoRevisao: { type: require('./ResumoPlanejamentoSchema'), select: false },
 
     // Estado do algoritmo de repetição espaçada (estilo SM-2)
     repeticoes: { type: Number, default: 0, min: 0, validate: inteiro },
@@ -34,7 +39,11 @@ const TentativaSchema = new Schema(
 
 // "O que revisar hoje" e "histórico desta questão" são as buscas mais comuns
 TentativaSchema.index({ usuarioId: 1, proximaRevisao: 1 });
-TentativaSchema.index({ usuarioId: 1, questaoId: 1 });
+TentativaSchema.index({ usuarioId: 1, questaoId: 1, respondidaEm: -1, _id: -1 });
+TentativaSchema.index({ usuarioId: 1, respondidaEm: -1 });
+TentativaSchema.index({ simuladoId: 1, questaoId: 1 }, {
+  unique: true, partialFilterExpression: { simuladoId: { $type: 'string' } },
+});
 
 // Sem chave estrangeira no Mongo: conferimos o usuário e a questão aqui
 TentativaSchema.pre('validate', async function () {

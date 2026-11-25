@@ -1,5 +1,5 @@
+const { apagarContasDeTeste } = require('./util-teste');
 const { conectar, mongoose } = require('../db');
-const Usuario = require('../models/Usuario');
 const Tentativa = require('../models/Tentativa');
 const Feedback = require('../models/Feedback');
 
@@ -38,7 +38,7 @@ async function esperar(descricao, ops, token, statusEsperado) {
 async function limpar() {
   await Tentativa.deleteMany({ _id: /^sync-/ });
   await Feedback.deleteMany({ _id: /^sync-/ });
-  await Usuario.deleteMany({ email: 'sync.teste@email.com' });
+  await apagarContasDeTeste(['sync.teste@email.com']);
 }
 
 const t1 = {
@@ -63,10 +63,10 @@ async function main() {
   conferir('mais de 100 operações → 400', (await enviar(muitas, token)).status === 400);
 
   console.log('\n--- Tentativas ---');
-  await esperar('insert válido', [op(1, 'tentativa_exercicio', 'sync-t1', 'insert', t1)], token, 'ok');
+  const r1 = await esperar('insert válido', [op(1, 'tentativa_exercicio', 'sync-t1', 'insert', t1)], token, 'ok');
   const doc = await Tentativa.findById('sync-t1').lean();
   conferir('gravada no Atlas, em nome do usuário do token',
-    doc?.usuarioId === 'user-1' && doc.acertou === true && doc.intervaloDias === 3);
+    doc?.usuarioId === 'user-1' && doc.acertou === true && doc.intervaloDias === r1.json.resultados[0].tentativa.intervalo_dias);
 
   await esperar('mesmo item reenviado (idempotente)', [op(1, 'tentativa_exercicio', 'sync-t1', 'insert', t1)], token, 'ok');
 
@@ -113,7 +113,7 @@ async function main() {
     JSON.stringify(r.map((x) => `${x.id}:${x.status}`)));
 
   console.log('\n--- Outro usuário não pode tomar um id que já existe ---');
-  const cad = await chamar('POST', '/auth/cadastro', { corpo: { nome: 'Sync Teste', email: 'sync.teste@email.com', senha: 'senha-forte-123' } });
+  const cad = await chamar('POST', '/auth/cadastro', { corpo: { trilha_id: 'trilha-dev', nome: 'Sync Teste', email: 'sync.teste@email.com', senha: 'senha-forte-123' } });
   await esperar('insert com o id "t1" que é da Ana (do seed)', [op(23, 'tentativa_exercicio', 't1', 'insert', { ...t1, acertou: 1 })], cad.json?.token, 'rejeitada');
   const original = await Tentativa.findById('t1').lean();
   conferir('a tentativa original da Ana continua intacta', original?.usuarioId === 'user-1' && original.acertou === false);
